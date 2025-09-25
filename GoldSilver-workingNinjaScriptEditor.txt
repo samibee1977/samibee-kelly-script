@@ -91,6 +91,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 		private bool canSellAtLevelD = false;
 		private int currentSessionDate = 0;
 		
+		// New variables for time-based trading conditions
+		private DateTime levelCDropTime = DateTime.MinValue;
+		private bool canBuyAtLevelBFromC = false;
+		private DateTime levelARiseTime = DateTime.MinValue;
+		private bool canSellAtLevelBFromA = false;
+		private DateTime levelADropTime = DateTime.MinValue;
+		private bool canBuyAtLevelDFromA = false;
+		private DateTime levelCRiseTime = DateTime.MinValue;
+		private bool canSellAtLevelDFromC = false;
+		private DateTime lastTradeTime = DateTime.MinValue;
+		
 		private int		breakEvenTicks		= 4;//default 5, 6		// Default setting for ticks needed to acheive before stop moves to breakeven		
 		private int		plusBreakEven		= 0; //default 3, 2		// Default setting for amount of ticks past breakeven to actually breakeven
 		private int		profitTargetTicks	= 400;//default 200		// Default setting for how many Ticks away from AvgPrice is profit target
@@ -200,12 +211,16 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (currentSessionDate != todayDate)
 			{
 				currentSessionDate = todayDate;
-				hasDroppedBelowLevelCToday = false;
-				levelCDropBar = -1;
-				canBuyAtLevelB = false;
-				hasRisenAboveLevelAToday = false;
-				levelARiseBar = -1;
-				canSellAtLevelD = false;
+				// Reset all time-based conditions for new session
+				levelCDropTime = DateTime.MinValue;
+				canBuyAtLevelBFromC = false;
+				levelARiseTime = DateTime.MinValue;
+				canSellAtLevelBFromA = false;
+				levelADropTime = DateTime.MinValue;
+				canBuyAtLevelDFromA = false;
+				levelCRiseTime = DateTime.MinValue;
+				canSellAtLevelDFromC = false;
+				lastTradeTime = DateTime.MinValue;
 			}
 			
 			barHigh[0] = High[0];
@@ -244,44 +259,81 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 			#endregion
 			
-			#region Session Logic for LevelC Drop and LevelB Buy
-			// Check if price has dropped below LevelC for the first time today
-			if (!hasDroppedBelowLevelCToday && Low[0] < LevelCValue)
+			#region Time-Based Trading Logic
+			
+			// Condition 1: Buy at LevelB when price crosses below LevelC and reaches LevelB within 5 minutes
+			if (CrossBelow(Low, LevelCValue, 1))
 			{
-				hasDroppedBelowLevelCToday = true;
-				levelCDropBar = CurrentBar;
-				canBuyAtLevelB = true;
-				Print("Price dropped below LevelC (" + LevelCValue + ") at bar " + levelCDropBar + " - Can now buy at LevelB (" + LevelBValue + ") within 5 bars");
+				levelCDropTime = Time[0];
+				canBuyAtLevelBFromC = true;
+				Print("Price dropped below LevelC (" + LevelCValue + ") at " + levelCDropTime.ToString("HH:mm:ss") + " - Can now buy at LevelB (" + LevelBValue + ") within 5 minutes");
 			}
 			
-			// Check if 5 bars have passed since dropping below LevelC
-			if (canBuyAtLevelB && hasDroppedBelowLevelCToday && levelCDropBar != -1)
+			// Check if 5 minutes have passed since dropping below LevelC
+			if (canBuyAtLevelBFromC && levelCDropTime != DateTime.MinValue)
 			{
-				int barsSinceDrop = CurrentBar - levelCDropBar;
-				if (barsSinceDrop > 5)
+				TimeSpan timeSinceDrop = Time[0] - levelCDropTime;
+				if (timeSinceDrop.TotalMinutes > 5)
 				{
-					canBuyAtLevelB = false;
-					Print("5 bar window expired - No longer eligible to buy at LevelB (" + LevelBValue + ")");
+					canBuyAtLevelBFromC = false;
+					Print("5 minute window expired - No longer eligible to buy at LevelB (" + LevelBValue + ")");
 				}
 			}
 			
-			// Check if price has risen above LevelA for the first time today
-			if (!hasRisenAboveLevelAToday && High[0] > LevelAValue)
+			// Condition 2: Sell at LevelB when price crosses above LevelA and reaches LevelB within 5 minutes
+			if (CrossAbove(High, LevelAValue, 1))
 			{
-				hasRisenAboveLevelAToday = true;
-				levelARiseBar = CurrentBar;
-				canSellAtLevelD = true;
-				Print("Price rose above LevelA (" + LevelAValue + ") at bar " + levelARiseBar + " - Can now sell at LevelD (" + LevelDValue + ") within 5 bars");
+				levelARiseTime = Time[0];
+				canSellAtLevelBFromA = true;
+				Print("Price rose above LevelA (" + LevelAValue + ") at " + levelARiseTime.ToString("HH:mm:ss") + " - Can now sell at LevelB (" + LevelBValue + ") within 5 minutes");
 			}
 			
-			// Check if 5 bars have passed since rising above LevelA
-			if (canSellAtLevelD && hasRisenAboveLevelAToday && levelARiseBar != -1)
+			// Check if 5 minutes have passed since rising above LevelA
+			if (canSellAtLevelBFromA && levelARiseTime != DateTime.MinValue)
 			{
-				int barsSinceRise = CurrentBar - levelARiseBar;
-				if (barsSinceRise > 5)
+				TimeSpan timeSinceRise = Time[0] - levelARiseTime;
+				if (timeSinceRise.TotalMinutes > 5)
 				{
-					canSellAtLevelD = false;
-					Print("5 bar window expired - No longer eligible to sell at LevelD (" + LevelDValue + ")");
+					canSellAtLevelBFromA = false;
+					Print("5 minute window expired - No longer eligible to sell at LevelB (" + LevelBValue + ")");
+				}
+			}
+			
+			// Condition 3: Buy at LevelD when price crosses below LevelA and reaches LevelD within 5 minutes
+			if (CrossBelow(Low, LevelAValue, 1))
+			{
+				levelADropTime = Time[0];
+				canBuyAtLevelDFromA = true;
+				Print("Price dropped below LevelA (" + LevelAValue + ") at " + levelADropTime.ToString("HH:mm:ss") + " - Can now buy at LevelD (" + LevelDValue + ") within 5 minutes");
+			}
+			
+			// Check if 5 minutes have passed since dropping below LevelA
+			if (canBuyAtLevelDFromA && levelADropTime != DateTime.MinValue)
+			{
+				TimeSpan timeSinceDrop = Time[0] - levelADropTime;
+				if (timeSinceDrop.TotalMinutes > 5)
+				{
+					canBuyAtLevelDFromA = false;
+					Print("5 minute window expired - No longer eligible to buy at LevelD (" + LevelDValue + ")");
+				}
+			}
+			
+			// Condition 4: Sell at LevelD when price crosses above LevelC and reaches LevelD within 5 minutes
+			if (CrossAbove(High, LevelCValue, 1))
+			{
+				levelCRiseTime = Time[0];
+				canSellAtLevelDFromC = true;
+				Print("Price rose above LevelC (" + LevelCValue + ") at " + levelCRiseTime.ToString("HH:mm:ss") + " - Can now sell at LevelD (" + LevelDValue + ") within 5 minutes");
+			}
+			
+			// Check if 5 minutes have passed since rising above LevelC
+			if (canSellAtLevelDFromC && levelCRiseTime != DateTime.MinValue)
+			{
+				TimeSpan timeSinceRise = Time[0] - levelCRiseTime;
+				if (timeSinceRise.TotalMinutes > 5)
+				{
+					canSellAtLevelDFromC = false;
+					Print("5 minute window expired - No longer eligible to sell at LevelD (" + LevelDValue + ")");
 				}
 			}
 			#endregion
@@ -387,30 +439,62 @@ namespace NinjaTrader.NinjaScript.Strategies
 			
             if (Position.MarketPosition == MarketPosition.Flat)
             {
+				// Check if 10 minutes have passed since last trade
+				bool canTrade = lastTradeTime == DateTime.MinValue || (Time[0] - lastTradeTime).TotalMinutes >= 10;
 				
-				// Special condition: Buy at LevelB after dropping below LevelC within 5 minutes
-				if (canBuyAtLevelB && hasDroppedBelowLevelCToday && 
+				// Condition 1: Buy at LevelB after dropping below LevelC within 5 minutes
+				if (canTrade && canBuyAtLevelBFromC && 
 					Close[0] >= LevelBValue && Low[0] <= LevelBValue)
 				{
 					_lastBar = CurrentBar;
-					SetProfitTarget(CalculationMode.Ticks, 4);
+					SetProfitTarget(CalculationMode.Ticks, TakeProfit);
 					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
-					EnterLong(1, "LevelB_Buy_After_LevelC_Drop");
-					canBuyAtLevelB = false; // Reset flag after trade
-					Print("Market Buy executed at LevelB (" + LevelBValue + ") after LevelC drop condition met");
+					EnterLong(1, "BuyLevelB_FromC");
+					canBuyAtLevelBFromC = false; // Reset condition after trade
+					lastTradeTime = Time[0]; // Set last trade time
+					Print("Market Buy executed at LevelB (" + LevelBValue + ") at " + Time[0].ToString("HH:mm:ss") + " after LevelC drop condition met");
 					return;
 				}
 				
-				// Special condition: Sell at LevelD after rising above LevelA within 5 bars
-				if (canSellAtLevelD && hasRisenAboveLevelAToday && 
+				// Condition 2: Sell at LevelB after rising above LevelA within 5 minutes
+				if (canTrade && canSellAtLevelBFromA && 
+					Close[0] <= LevelBValue && High[0] >= LevelBValue)
+				{
+					_lastBar = CurrentBar;
+					SetProfitTarget(CalculationMode.Ticks, TakeProfit);
+					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
+					EnterShort(1, "SellLevelB_FromA");
+					canSellAtLevelBFromA = false; // Reset condition after trade
+					lastTradeTime = Time[0]; // Set last trade time
+					Print("Market Sell executed at LevelB (" + LevelBValue + ") at " + Time[0].ToString("HH:mm:ss") + " after LevelA rise condition met");
+					return;
+				}
+				
+				// Condition 3: Buy at LevelD after dropping below LevelA within 5 minutes
+				if (canTrade && canBuyAtLevelDFromA && 
+					Close[0] >= LevelDValue && Low[0] <= LevelDValue)
+				{
+					_lastBar = CurrentBar;
+					SetProfitTarget(CalculationMode.Ticks, TakeProfit);
+					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
+					EnterLong(1, "BuyLevelD_FromA");
+					canBuyAtLevelDFromA = false; // Reset condition after trade
+					lastTradeTime = Time[0]; // Set last trade time
+					Print("Market Buy executed at LevelD (" + LevelDValue + ") at " + Time[0].ToString("HH:mm:ss") + " after LevelA drop condition met");
+					return;
+				}
+				
+				// Condition 4: Sell at LevelD after rising above LevelC within 5 minutes
+				if (canTrade && canSellAtLevelDFromC && 
 					Close[0] <= LevelDValue && High[0] >= LevelDValue)
 				{
 					_lastBar = CurrentBar;
-					SetProfitTarget(CalculationMode.Ticks, 4);
+					SetProfitTarget(CalculationMode.Ticks, TakeProfit);
 					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
-					EnterShort(1, "LevelD_Sell_After_LevelA_Rise");
-					canSellAtLevelD = false; // Reset flag after trade
-					Print("Market Sell executed at LevelD (" + LevelDValue + ") after LevelA rise condition met");
+					EnterShort(1, "SellLevelD_FromC");
+					canSellAtLevelDFromC = false; // Reset condition after trade
+					lastTradeTime = Time[0]; // Set last trade time
+					Print("Market Sell executed at LevelD (" + LevelDValue + ") at " + Time[0].ToString("HH:mm:ss") + " after LevelC rise condition met");
 					return;
 				}
 //                var support = _sr.SupportPrice[0];
