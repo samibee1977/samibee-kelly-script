@@ -1,0 +1,808 @@
+//
+// Copyright (C) 2021, NinjaTrader LLC <www.ninjatrader.com>.
+// NinjaTrader reserves the right to modify or overwrite this NinjaScript component with each release.
+//
+#region Using declarations
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Xml.Serialization;
+using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Chart;
+using NinjaTrader.Gui.SuperDom;
+using NinjaTrader.Data;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.Core.FloatingPoint;
+using NinjaTrader.NinjaScript.Indicators;
+using NinjaTrader.NinjaScript.DrawingTools;
+//using NinjaTrader.NinjaScript.Indicators.TDU;
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Xml.Serialization;
+using NinjaTrader.Cbi;
+using NinjaTrader.Gui;
+using NinjaTrader.Gui.Chart;
+using NinjaTrader.Gui.SuperDom;
+using NinjaTrader.Gui.Tools;
+using NinjaTrader.Data;
+using NinjaTrader.NinjaScript;
+using NinjaTrader.Core.FloatingPoint;
+using NinjaTrader.NinjaScript.DrawingTools;
+
+#endregion
+
+/*
+ES : TP 4, extra 1
+YM : TP 10, extra 2
+NQ : TP 7, extra 2
+RTY: TP 4, extra 8
+*/
+namespace NinjaTrader.NinjaScript.Strategies
+{
+    public class KellyGoldSilverStrategy : Strategy
+    {
+//		private TrendMagic TrendMagic1;
+		
+		private Series<double> barHigh;
+		private Series<double> barLow;
+		private Series<double> barClose;
+		
+//		private NinjaTrader.NinjaScript.Indicators.KellyAnn.Nearest4Levels Nearest4Levels1;
+
+		private string  atmStrategyId			= string.Empty;
+		private string  orderId					= string.Empty;
+		private bool	isAtmStrategyCreated	= false;
+		
+//        private TDUSupportResistance _sr;
+        private int _lastBar = 0;
+		private double _lastLevel;
+        private double _lastLevel1;
+		private double _lastLevel2;
+		private double _lastLevel3;
+		private double _lastLevel4;
+		private double _lastLevel5;
+		private double _lastLevel6;
+		private double _lastLevel7;
+		private double _lastLevel8;
+		
+		// New variables for session tracking and timing
+		private bool hasDroppedBelowLevelCToday = false;
+		private DateTime levelCDropTime = DateTime.MinValue;
+		private bool canBuyAtLevelB = false;
+		private int currentSessionDate = 0;
+		
+		private int		breakEvenTicks		= 4;//default 5, 6		// Default setting for ticks needed to acheive before stop moves to breakeven		
+		private int		plusBreakEven		= 0; //default 3, 2		// Default setting for amount of ticks past breakeven to actually breakeven
+		private int		profitTargetTicks	= 400;//default 200		// Default setting for how many Ticks away from AvgPrice is profit target
+        private int		stopLossTicks		= 22;//default 8, 6		// Default setting for stoploss. Ticks away from AvgPrice		
+		private int		trailProfitTrigger	= 5;//default 9	, 8	// 8 Default Setting for trail trigger ie the number of ticks movede after break even befor activating TrailStep
+		private int		trailStepTicks		= 1;//default 3, 2		// 2 Default setting for number of ticks advanced in the trails - take into consideration the barsize as is calculated/advanced next bar
+		private int 	BarTraded 			= 0; //default 0		// Default setting for Bar number that trade occurs	
+		
+		private bool	showLines			= false;		// Turn on/off the profit targett, stoploss and trailing stop plots  // new for NT8
+		
+		private double	initialBreakEven	= 0; 		// Default setting for where you set the breakeven
+		private double 	previousPrice		= 0;		// previous price used to calculate trailing stop
+		private double 	newPrice			= 0;		// Default setting for new price used to calculate trailing stop
+		private double	stopPlot			= 0;		// Value used to plot the stop level
+
+        protected override void OnStateChange()
+        {
+            if (State == State.SetDefaults)
+            {
+                Description = "KellyGoldSilverStrategy";
+                Name = "KellyGoldSilverStrategy";
+				
+				AddPlot(new Stroke(Brushes.Transparent, 2), PlotStyle.Line, "InvisiblePlot");
+				
+                TakeProfit = 7;
+                IsInstantiatedOnEachOptimizationIteration = false;
+//                Calculate = Calculate.OnEachTick;
+				Calculate = Calculate.OnPriceChange;
+//				Calculate = Calculate.OnBarClose;
+                ExtraSLTicks = 2;
+                ExtraRetracementTicks = 2;
+//                MinTouches = 0;
+                IncludeCommission = true;
+                RealtimeErrorHandling = RealtimeErrorHandling.IgnoreAllErrors;
+                IsExitOnSessionCloseStrategy = false;
+				
+//				IsSuspendedWhileInactive = false;
+//                PaintPriceMarkers = false;
+                DisplayInDataBox = false;
+                DrawOnPricePanel = true;
+                BarsRequiredToPlot = 4;
+                IsAutoScale = false;
+                IsOverlay = true;
+				
+//                AddPlot(new Stroke(Brushes.Transparent, 2), PlotStyle.Line, "InvisiblePlot");
+				
+                LevelA = 0;
+                LevelB = 26;
+                LevelC = 50;
+                LevelD = 77;
+				
+				LevelALine = new Stroke(Brushes.Blue);
+				LevelBLine = new Stroke(Brushes.Green);
+				LevelCLine = new Stroke(Brushes.Red);
+				LevelDLine = new Stroke(Brushes.Purple);
+				
+				
+
+            }
+            else if (State == State.Configure)
+            {
+//                AddDataSeries(BarsPeriodType.Tick, 1);
+				
+				barHigh = new Series<double>(this);
+				barLow = new Series<double>(this);
+				barClose = new Series<double>(this);
+				
+				SetStopLoss(CalculationMode.Ticks, stopLossTicks);
+				SetProfitTarget(CalculationMode.Ticks, profitTargetTicks);	
+            }
+            else if (State == State.DataLoaded)
+            {
+//				TrendMagic1				= TrendMagic(Close, 20, 14, 1, false);
+//				TrendMagic1.Plots[0].Brush = Brushes.Orange;
+//				TrendMagic1.Plots[1].Brush = Brushes.Transparent;
+//				TrendMagic1.Plots[2].Brush = Brushes.Transparent;
+//				AddChartIndicator(TrendMagic1);
+				
+//                _sr = TDUSupportResistance(Close, TDUSRZoneType.Line,10,16,16,50,15,15,TDUZoneBreakType.CandleClosesOutsideZone,false,BarsPeriodType.Minute,5,1000,"jonesy3@gmail.com",6381183434951);
+//                _sr.ShowBrokenLines = false;
+//                _sr.ShowBroken = false;
+//				_sr.ShowPreviousTouches= false;
+//				_sr.ShowPrice= false;
+//				_sr.ShowPreviousTouchesCount=false;
+
+//                AddChartIndicator(_sr);
+				
+//				Nearest4Levels1				= Nearest4Levels(Close, 0, 26, 50, 77, NinjaTrader.Gui.Stroke, NinjaTrader.Gui.Stroke, NinjaTrader.Gui.Stroke, NinjaTrader.Gui.Stroke);
+//				Nearest4Levels1.Plots[0].Brush = Brushes.Transparent;
+//				AddChartIndicator(Nearest4Levels1);
+            }
+        }
+
+        protected override void OnBarUpdate()
+        {
+            if (BarsInProgress != 0) return;
+            if (CurrentBar < BarsRequiredToTrade)
+                return;
+            if (_lastBar == CurrentBar) return;
+			// Make sure this strategy does not execute against historical data
+			if(State == State.Historical)
+				return;
+			
+			// Reset session tracking at start of new session
+			int todayDate = Time[0].Date.Day + Time[0].Date.Month * 100 + Time[0].Date.Year * 10000;
+			if (currentSessionDate != todayDate)
+			{
+				currentSessionDate = todayDate;
+				hasDroppedBelowLevelCToday = false;
+				levelCDropTime = DateTime.MinValue;
+				canBuyAtLevelB = false;
+			}
+			
+			barHigh[0] = High[0];
+			barLow[0] = Low[0];
+			barClose[0] = Low[0];
+			
+			#region Calculate
+            double price = Close[0];
+            double priceInt = Math.Floor(Math.Floor(price)/100);
+
+//            levelAValue = (priceInt + (LevelA / 100.0)) * 100;
+//            levelBValue = (priceInt + (LevelB / 100.0)) * 100;
+//            levelCValue = (priceInt + (LevelC / 100.0)) * 100;
+//            levelDValue = (priceInt + (LevelD / 100.0)) * 100;
+			
+			double LevelAValue = (priceInt + (LevelA / 100.0)) * 100;
+            double LevelBValue = (priceInt + (LevelB / 100.0)) * 100;
+            double LevelCValue = (priceInt + (LevelC / 100.0)) * 100;
+            double LevelDValue = (priceInt + (LevelD / 100.0)) * 100;
+			
+//			levelCValue2[0] = (priceInt + (LevelC / 100.0)) * 100;
+			
+//			double LevelAValue = (priceInt + (LevelA / 100.0)) * 100;
+//            double LevelBValue = (priceInt + (LevelB / 100.0)) * 100;
+//            double LevelCValue = (priceInt + (LevelC / 100.0)) * 100;
+//            double LevelDValue = (priceInt + (LevelD / 100.0)) * 100;
+
+            if (price < LevelAValue)
+            {
+                LevelAValue -= 1.0;
+                LevelBValue -= 1.0;
+                LevelCValue -= 1.0;
+                LevelDValue -= 1.0;
+				
+//				levelCValue2[0] -= 1.0;
+            }
+			#endregion
+			
+			#region Session Logic for LevelC Drop and LevelB Buy
+			// Check if price has dropped below LevelC for the first time today
+			if (!hasDroppedBelowLevelCToday && Low[0] < LevelCValue)
+			{
+				hasDroppedBelowLevelCToday = true;
+				levelCDropTime = Time[0];
+				canBuyAtLevelB = true;
+				Print("Price dropped below LevelC (" + LevelCValue + ") at " + levelCDropTime + " - Can now buy at LevelB ( " + LevelBValue + " ) within 30 minutes");
+			}
+			
+			// Check if 5 minutes have passed since dropping below LevelC
+			if (canBuyAtLevelB && hasDroppedBelowLevelCToday && levelCDropTime != DateTime.MinValue)
+			{
+				TimeSpan timeSinceDrop = Time[0] - levelCDropTime;
+				if (timeSinceDrop.TotalMinutes > 30)
+				{
+					canBuyAtLevelB = false;
+					Print("5 minute window expired - No longer eligible to buy at LevelB (" + LevelBValue);
+				}
+			}
+			#endregion
+			
+			#region Plot
+            Draw.HorizontalLine(this, "LevelA"+LevelAValue, LevelAValue, LevelALine.Brush, LevelALine.DashStyleHelper
+				, (int) LevelALine.Width);
+            Draw.HorizontalLine(this, "LevelB"+LevelBValue, LevelBValue, LevelBLine.Brush, LevelBLine.DashStyleHelper
+				, (int) LevelBLine.Width);
+            Draw.HorizontalLine(this, "LevelC"+LevelCValue, LevelCValue, LevelCLine.Brush, LevelCLine.DashStyleHelper
+				, (int) LevelCLine.Width);
+            Draw.HorizontalLine(this, "LevelD"+LevelDValue, LevelDValue, LevelDLine.Brush, LevelDLine.DashStyleHelper
+				, (int) LevelDLine.Width);
+			#endregion
+			
+//			 keep the below code intact for use with a fixed stop, a break even stop and a profit trailing stop =================			
+//////////////////			switch (Position.MarketPosition)
+//////////////////            {
+//////////////////				// Resets the stop loss to the original value when all positions are closed
+//////////////////                case MarketPosition.Flat:
+//////////////////                    SetStopLoss(CalculationMode.Ticks, stopLossTicks);
+//////////////////					previousPrice = 0;
+//////////////////					stopPlot = 0;
+//////////////////                    break;
+					   
+//////////////////                case MarketPosition.Long:
+						
+//////////////////					if (previousPrice == 0)
+//////////////////					{
+//////////////////						stopPlot = Position.AveragePrice - stopLossTicks * TickSize;  // initial stop plot level
+//////////////////					}
+					
+//////////////////                    // Once the price is greater than entry price+ breakEvenTicks ticks, set stop loss to plusBreakeven ticks
+//////////////////                    if (Close[0] > Position.AveragePrice + breakEvenTicks * TickSize  && previousPrice == 0)
+//////////////////                    {
+//////////////////						initialBreakEven = Position.AveragePrice + plusBreakEven * TickSize;
+//////////////////                        SetStopLoss(CalculationMode.Price, initialBreakEven);
+//////////////////						previousPrice = Position.AveragePrice;
+//////////////////						stopPlot = initialBreakEven;
+//////////////////                    }
+//////////////////					// Once at breakeven wait till trailProfitTrigger is reached before advancing stoploss by trailStepTicks size step
+//////////////////					else if (previousPrice	!= 0 ////StopLoss is at breakeven
+////////////////// 							&& GetCurrentAsk() > previousPrice + trailProfitTrigger * TickSize )
+//////////////////					{
+//////////////////						newPrice = previousPrice + trailStepTicks * TickSize; 	// Calculate trail stop adjustment
+//////////////////						SetStopLoss(CalculationMode.Price, newPrice);			// Readjust stoploss level		
+//////////////////						previousPrice = newPrice;				 				// save for price adjust on next candle
+//////////////////						stopPlot = newPrice; 					 				// save to adjust plot line
+//////////////////					}
+					
+//////////////////					// Plot the profit/stop lines
+//////////////////					if (showLines)
+//////////////////					{
+//////////////////						ProfitTarget[0] = Position.AveragePrice + profitTargetTicks * TickSize;
+//////////////////						StopLoss[0] 	= stopPlot;
+//////////////////					}
+//////////////////                    break;
+					
+//////////////////                case MarketPosition.Short:
+					
+//////////////////					if (previousPrice == 0) 
+//////////////////					{
+//////////////////						stopPlot = Position.AveragePrice + stopLossTicks * TickSize;  // initial stop plot level
+//////////////////					}
+					
+//////////////////                    // Once the price is Less than entry price - breakEvenTicks ticks, set stop loss to breakeven
+//////////////////                    if (Close[0] < Position.AveragePrice - breakEvenTicks * TickSize && previousPrice == 0)
+//////////////////                    {
+//////////////////						initialBreakEven = Position.AveragePrice - plusBreakEven * TickSize;
+//////////////////                        SetStopLoss(CalculationMode.Price, initialBreakEven);
+//////////////////						previousPrice = Position.AveragePrice;
+//////////////////						stopPlot = initialBreakEven;
+//////////////////                    }
+//////////////////					// Once at breakeven wait till trailProfitTrigger is reached before advancing stoploss by trailStepTicks size step
+//////////////////					else if (previousPrice	!= 0 ////StopLoss is at breakeven
+////////////////// 							&& GetCurrentAsk() < previousPrice - trailProfitTrigger * TickSize )
+//////////////////					{
+//////////////////						newPrice = previousPrice - trailStepTicks * TickSize;
+//////////////////						SetStopLoss(CalculationMode.Price, newPrice);
+//////////////////						previousPrice = newPrice;
+//////////////////						stopPlot = newPrice;
+//////////////////					}
+					
+//////////////////					if (showLines)
+//////////////////					{
+//////////////////						ProfitTarget[0] = Position.AveragePrice - profitTargetTicks * TickSize;
+//////////////////						StopLoss[0] 	= stopPlot;
+//////////////////					}					
+
+//////////////////                    break;
+//////////////////                default:
+//////////////////                    break;
+//////////////////			}	
+			
+//			Print("levelAValue Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue);
+//			Print("levelBValue Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue);
+//			Print("levelCValue Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue);
+//			Print("levelDValue Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue);
+		
+//			Print("levelCValue2 Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0]);
+
+//			if (CrossAbove(Nearest4Levels1, Nearest4Levels1, 1))
+			
+            if (Position.MarketPosition == MarketPosition.Flat)
+            {
+				
+				// Special condition: Buy at LevelB after dropping below LevelC within 5 minutes
+				if (canBuyAtLevelB && hasDroppedBelowLevelCToday && 
+					Close[0] >= LevelBValue && Low[0] <= LevelBValue)
+				{
+					_lastBar = CurrentBar;
+					SetProfitTarget(CalculationMode.Ticks, 4);
+					SetStopLoss(CalculationMode.Ticks, 21);
+					EnterLong(1, "LevelB_Buy_After_LevelC_Drop");
+					canBuyAtLevelB = false; // Reset flag after trade
+					Print("Market Buy executed at LevelB (" + LevelBValue + ") after LevelC drop condition met");
+					return;
+				}
+				
+//                var support = _sr.SupportPrice[0];
+				if (
+//					(Zombie9SetupTracker(Close, @"Zombie9SetupTracker - v1.074", true, 15, 1, 12, 26, 9, Brushes.RoyalBlue, Brushes.Fuchsia, Brushes.DimGray, 10).EntryLetter[1] == "S.")
+//					Open[0] > Zombie9Levels(Close, @"Zombie9Levels - v1.074", true).Next50LineHigher + ExtraRetracementTicks * TickSize
+//					
+//					(Open[0] < Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue)
+//					&& ((Close[0] < Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue)
+//					&& (Close[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue)
+//					(Close[0] < Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue)
+//					(CrossAbove(barHigh, Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0], 1)
+////					&& (Close[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0])
+//					&& (Close[0] > TrendMagic1.Trend[0])
+//					&& (Close[0] >= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0], 1)
+//					(CrossAbove(barHigh, LevelCValue, 1))
+					(CrossBelow(barLow,LevelAValue, 1))
+					||
+					(CrossBelow(barLow,LevelBValue, 1))
+					||
+					(CrossBelow(barLow,LevelCValue, 1))
+					||
+					(CrossBelow(barLow,LevelDValue, 1))
+//					(Open[0] > LevelBValue)
+//					&& ((Low[0] <= LevelBValue)
+//					&& (Close[0] > LevelBValue)
+//				
+					)
+////				
+//					  && Close[0] >= Zombie9Levels(Close, @"Zombie9Levels - v1.074", true).Next25LineLower + ExtraRetracementTicks * TickSize)
+//                if ( Close[0] > Open[0] )
+//					if (Low[0] <= support && Close[0] >= support + ExtraRetracementTicks * TickSize)
+//				if ((Low[0] <= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue
+//					&& Close[0] >= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue + ExtraRetracementTicks * TickSize)
+//                ||
+//					((Low[0] <= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue
+//					&& Close[0] >= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue + ExtraRetracementTicks * TickSize)
+//					))
+             
+				{
+//                    if (_sr.SupportTouches[0] >= MinTouches)
+//                    {
+//                        if (_lastLevel.ApproxCompare(Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue) != 0)
+//                        {
+//					if (_lastLevel != Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue)
+//                        {
+//					if (_lastLevel != LevelBValue)
+//                        {
+//                            _lastBar = CurrentBar;
+//                            _lastLevel = LevelBValue;
+//////                            SetProfitTarget(CalculationMode.Ticks, TakeProfit);
+//////                            var ticks = (Close[0] - Low[0]) / TickSize;
+//////                            if (ticks < 4) ticks = 4;
+//////                            ticks += ExtraSLTicks;
+//////                            SetStopLoss(CalculationMode.Ticks, 30);
+////                            EnterLong(1, 1, "buy");
+//							EnterLong(1, "buy");
+////							Print("levelAValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue);
+////							Print("levelBValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue);
+////							Print("levelCValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue);
+////							Print("levelDValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue);
+//						Print("LevelBValue Buy" +LevelBValue);
+						
+////							Print("levelCValue2 Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0]);
+////						
+////							if (orderId.Length == 0 && atmStrategyId.Length == 0)
+////						{
+////							isAtmStrategyCreated = false;  // reset atm strategy created check to false
+////							atmStrategyId = GetAtmStrategyUniqueId();
+////							orderId = GetAtmStrategyUniqueId();
+////							AtmStrategyCreate(OrderAction.Buy, OrderType.Market, Close[0], 0, TimeInForce.Day, orderId, "AtmStrategyTemplate", atmStrategyId, (atmCallbackErrorCode, atmCallBackId) => {
+////							//check that the atm strategy create did not result in error, and that the requested atm strategy matches the id in callback
+////							if (atmCallbackErrorCode == ErrorCode.NoError && atmCallBackId == atmStrategyId)
+////							isAtmStrategyCreated = true;
+////							});
+////						}
+//						return;
+//						}
+//					 if (_lastLevel5 != LevelAValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel5 = LevelAValue;
+//								EnterLong(1, "long");
+//								Print("LevelAValue Long" +LevelAValue);
+//								return;
+//							}
+//							 else if (_lastLevel6 != LevelBValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel6 = LevelBValue;
+//								EnterLong(1, "long");
+//								Print("LevelAValue Long" +LevelBValue);
+//								return;
+//							}
+//							else if (_lastLevel7 != LevelCValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel7 = LevelCValue;
+//								EnterLong(1, "long");
+//								Print("LevelAValue Long" +LevelCValue);
+//								return;
+//							}
+//							else if (_lastLevel8 != LevelDValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel8 = LevelDValue;
+//								EnterLong(1, "long");
+//								Print("LevelAValue Long" +LevelDValue);
+//								return;
+//							}
+					
+						
+					
+					
+					
+                            
+                        }
+					      
+
+//                var resistance = _sr.ResistancePrice[0];
+				if (
+//					(Zombie9SetupTracker(Close, @"Zombie9SetupTracker - v1.074", true, 15, 1, 12, 26, 9, Brushes.RoyalBlue, Brushes.Fuchsia, Brushes.DimGray, 10).EntryLetter[1] == "B.")
+//					Open[0] < Zombie9Levels(Close, @"Zombie9Levels - v1.074", true).Next75LineLower + ExtraRetracementTicks * TickSize 
+//					
+//					(Open[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue)
+//					&& ((Close[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue)
+//					(CrossBelow(barLow, Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0], 1))
+////					&& (Close[0] < Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0])
+//					&& (Close[0] < TrendMagic1.Trend[0])
+//					&& (Close[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0], 1)
+//					&& (Close[0] <= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue)
+//					&& (Close[0] > Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue)
+//					(CrossBelow(barLow,LevelCValue, 1))
+					(CrossAbove(barHigh, LevelAValue, 1))
+					||
+					(CrossAbove(barHigh, LevelBValue, 1))
+					||
+					(CrossAbove(barHigh, LevelCValue, 1))
+					||
+					(CrossAbove(barHigh, LevelDValue, 1))
+//					(Open[0] < LevelDValue)
+//					&& ((High[0] >= LevelDValue)
+//					&& (Close[0] < LevelDValue)
+					)
+					
+//					 High[0] >= Zombie9Levels(Close, @"Zombie9Levels - v1.074", true).Next25LineHigher + ExtraRetracementTicks * TickSize 
+//					 && Close[0] <= Zombie9Levels(Close, @"Zombie9Levels - v1.074", true).Next25LineHigher + ExtraRetracementTicks * TickSize)
+//               if ( Close[0] < Open[0] )
+//					if (High[0] >= resistance && Close[0] < resistance - ExtraRetracementTicks * TickSize)
+//				if ((High[0] >= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue 
+//					&& Close[0] < Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue - ExtraRetracementTicks * TickSize)
+//               ||
+//					((High[0] <= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue
+//					&& Close[0] >= Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue + ExtraRetracementTicks * TickSize)
+//					))
+					{
+//                    if (_sr.ResistanceTouches[0] >= MinTouches)
+//                    {
+//                        if (_lastLevel.ApproxCompare(Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue) != 0)
+//                        {
+//						if (_lastLevel != Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue)
+//                        {
+//                          if (_lastLevel != LevelDValue)
+//                        {
+//                            _lastBar = CurrentBar;
+//                            _lastLevel = LevelDValue;
+							
+////                            _lastLevel = Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue;
+////                            SetProfitTarget(CalculationMode.Ticks, TakeProfit);
+
+////                            var ticks = (High[0] - Close[0]) / TickSize;
+////                            if (ticks < 4) ticks = 4;
+////                            ticks += ExtraSLTicks;
+////                            SetStopLoss(CalculationMode.Ticks, 30);
+////                            EnterShort(1, 1, "sell");
+//							  EnterShort(1, "sell");
+							
+////							Print("levelAValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelAValue);
+////							Print("levelBValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelBValue);
+////							Print("levelCValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue);
+////							Print("levelDValue Buy" + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelDValue);					
+//						Print("LevelDValue Sell" +LevelDValue);
+////							Print("levelCValue2 Onbarupdate: " + Nearest4Levels(Close, 0, 26, 50, 77, new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2), new NinjaTrader.Gui.Stroke(Brushes.Green, DashStyleHelper.Dash, 2)).LevelCValue2[0]);
+////						if (orderId.Length == 0 && atmStrategyId.Length == 0)
+////						{
+////							isAtmStrategyCreated = false;  // reset atm strategy created check to false
+////							atmStrategyId = GetAtmStrategyUniqueId();
+////							orderId = GetAtmStrategyUniqueId();
+////							AtmStrategyCreate(OrderAction.Sell, OrderType.Market, Close[0], 0, TimeInForce.Day, orderId, "AtmStrategyTemplate", atmStrategyId, (atmCallbackErrorCode, atmCallBackId) => {
+////							//check that the atm strategy create did not result in error, and that the requested atm strategy matches the id in callback
+////							if (atmCallbackErrorCode == ErrorCode.NoError && atmCallBackId == atmStrategyId)
+////							isAtmStrategyCreated = true;
+////							});
+////						}
+//						return;
+//						}
+//						 if (_lastLevel1 != LevelAValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel = LevelAValue;
+//								EnterShort(1, "sell");
+//								Print("LevelAValue Sell" +LevelAValue);
+//								return;
+//							}
+//							 else if (_lastLevel2 != LevelBValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel2 = LevelBValue;
+//								EnterShort(1, "sell");
+//								Print("LevelBValue Sell" +LevelBValue);
+//								return;
+//							}
+//							else if (_lastLevel3 != LevelCValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel3 = LevelCValue;
+//								EnterShort(1, "sell");
+//								Print("LevelCValue Sell" +LevelCValue);
+//								return;
+//							}
+//							else if (_lastLevel4 != LevelDValue)
+//                        	{
+//                            	_lastBar = CurrentBar;
+//                            	_lastLevel4 = LevelDValue;
+//								EnterShort(1, "sell");
+//								Print("LevelDValue Sell" +LevelDValue);
+//								return;
+//							}
+					
+                            
+//                        }
+//                    }
+                	}
+            	}
+			
+//			// Check that atm strategy was created before checking other properties
+//			if (!isAtmStrategyCreated)
+//				return;
+
+//			// Check for a pending entry order
+//			if (orderId.Length > 0)
+//			{
+//				string[] status = GetAtmStrategyEntryOrderStatus(orderId);
+
+//				// If the status call can't find the order specified, the return array length will be zero otherwise it will hold elements
+//				if (status.GetLength(0) > 0)
+//				{
+//					// Print out some information about the order to the output window
+//					Print("The entry order average fill price is: " + status[0]);
+//					Print("The entry order filled amount is: " + status[1]);
+//					Print("The entry order order state is: " + status[2]);
+
+//					// If the order state is terminal, reset the order id value
+//					if (status[2] == "Filled" || status[2] == "Cancelled" || status[2] == "Rejected")
+//						orderId = string.Empty;
+//				}
+//			} // If the strategy has terminated reset the strategy id
+//			else if (atmStrategyId.Length > 0 && GetAtmStrategyMarketPosition(atmStrategyId) == Cbi.MarketPosition.Flat)
+//				atmStrategyId = string.Empty;
+
+//			if (atmStrategyId.Length > 0)
+//			{
+//				// You can change the stop price
+//				if (GetAtmStrategyMarketPosition(atmStrategyId) != MarketPosition.Flat)
+//					AtmStrategyChangeStopTarget(0, Low[0] - 3 * TickSize, "STOP1", atmStrategyId);
+
+////				 Print some information about the strategy to the output window, please note you access the ATM strategy specific position object here
+////				 the ATM would run self contained and would not have an impact on your NinjaScript strategy position and PnL
+//				Print("The current ATM Strategy market position is: " + GetAtmStrategyMarketPosition(atmStrategyId));
+//				Print("The current ATM Strategy position quantity is: " + GetAtmStrategyPositionQuantity(atmStrategyId));
+//				Print("The current ATM Strategy average price is: " + GetAtmStrategyPositionAveragePrice(atmStrategyId));
+//				Print("The current ATM Strategy Unrealized PnL is: " + GetAtmStrategyUnrealizedProfitLoss(atmStrategyId));
+//			}
+			
+        	}
+		
+//		bool checktime(int now)
+//		{
+//			if((FromTime<=ToTime) && (now>=FromTime && now<ToTime))     return true;
+	    	    
+//			if((FromTime>ToTime) && (now>=FromTime || now<ToTime))	return true;
+        
+//			return false;
+//		}
+
+        #region Properties
+		
+		[Browsable(false)]
+		[XmlIgnore]		
+        public Series<double>  BarHigh
+        {
+            get { return barHigh; }	// Allows our public BullIndication Series<bool> to access and expose our interal bullIndication Series<bool>
+        }
+		[Browsable(false)]
+		[XmlIgnore]		
+        public Series<double>  BarLow
+        {
+            get { return barLow; }	// Allows our public BullIndication Series<bool> to access and expose our interal bullIndication Series<bool>
+        }
+		[Browsable(false)]
+		[XmlIgnore]		
+        public Series<double>  BarClose
+        {
+            get { return barClose; }	// Allows our public BullIndication Series<bool> to access and expose our interal bullIndication Series<bool>
+        }
+		
+        [Range(1, int.MaxValue), NinjaScriptProperty]
+        [Display(ResourceType = typeof(Custom.Resource), Name = "Take Profit (ticks)", GroupName = "01. Parameters", Order = 0)]
+        public int TakeProfit { get; set; }
+
+        [Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(ResourceType = typeof(Custom.Resource), Name = "Extra SL (ticks)", GroupName = "01. Parameters", Order = 1)]
+        public int ExtraSLTicks { get; set; }
+		
+        [Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(ResourceType = typeof(Custom.Resource), Name = "Extra Retracement (ticks)", GroupName = "01. Parameters", Order = 2)]
+        public int ExtraRetracementTicks { get; set; }
+
+//        [Range(0, int.MaxValue), NinjaScriptProperty]
+//        [Display(ResourceType = typeof(Custom.Resource), Name = "Min. Touches", GroupName = "01. Parameters", Order = 3)]
+//        public int MinTouches { get; set; }
+
+		
+ 		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="Profit Target Ticks", Description="Number of ticks away from entry price for the Profit Target order", Order=1, GroupName="Parameters")]
+		public int ProfitTargetTicks
+		{
+			get { return profitTargetTicks; }
+			set { profitTargetTicks = value; }
+		}
+
+		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="Stop Loss Ticks", Description="Numbers of ticks away from entry price for the Stop Loss order", Order=2, GroupName="Parameters")]
+		public int StopLossTicks
+		{
+			get { return stopLossTicks; }
+			set { stopLossTicks = value; }
+		}
+
+		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="BreakEven Ticks Trigger", Description="Number of ticks in Profit to trigger stop to move to Plus Breakeven ticks level", Order=3, GroupName="Parameters")]
+		public int BreakEvenTicks
+		{
+			get {return breakEvenTicks;}
+			set {breakEvenTicks = value;}
+		}
+
+		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="BreakEven Ticks level", Description="Number of ticks past breakeven for breakeven stop (can be zero)", Order=4, GroupName="Parameters")]
+		public int PlusBreakEven
+		{
+			get { return plusBreakEven; }
+			set { plusBreakEven = value; }
+		}
+
+		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="Trail Profit Trigger", Description="Number of ticks in profit to trigger trail stop action", Order=5, GroupName="Parameters")]
+		public int TrailProfitTrigger
+		{
+			get {return trailProfitTrigger;}
+			set {trailProfitTrigger = value;}
+		}
+		
+		[Range(0, int.MaxValue)]
+		[NinjaScriptProperty]
+		[Display(Name="Trail Step Ticks", Description="Number of ticks to step for each adjustment of trail stop", Order=6, GroupName="Parameters")]
+		public int TrailStepTicks
+		{
+			get {return trailStepTicks;}
+			set {trailStepTicks = value;}
+		}
+		[NinjaScriptProperty]
+		[Display(Name = "Show Lines", Description="Plot profit and stop lines on chart", Order = 7, GroupName = "Parameters")]
+		public bool ShowLines
+		{
+			get { return showLines; } 
+			set { showLines = value; }
+		}		
+
+		[Browsable(false)]
+		[XmlIgnore]
+		public Series<double> ProfitTarget
+		{
+			get { return Values[0]; }
+		}
+
+		[Browsable(false)]
+		[XmlIgnore]
+		public Series<double> StopLoss
+		{
+			get { return Values[1]; }
+		}
+		
+		[Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(Name = "Level A", Order = 1, GroupName = "Parameters")]
+        public int LevelA { get; set; }
+
+        [Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(Name = "Level B", Order = 2, GroupName = "Parameters")]
+        public int LevelB { get; set; }
+
+        [Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(Name = "Level C", Order = 3, GroupName = "Parameters")]
+        public int LevelC { get; set; }
+
+        [Range(0, int.MaxValue), NinjaScriptProperty]
+        [Display(Name = "Level D", Order = 4, GroupName = "Parameters")]
+        public int LevelD { get; set; }
+
+		[NinjaScriptProperty]
+		[Display(Name = "Level A Line", Order = 5, GroupName = "Parameters")]
+		public Stroke LevelALine { get; set; }		
+
+		[NinjaScriptProperty]
+		[Display(Name = "Level B Line", Order = 6, GroupName = "Parameters")]
+		public Stroke LevelBLine { get; set; }		
+
+		[NinjaScriptProperty]
+		[Display(Name = "Level C Line", Order = 7, GroupName = "Parameters")]
+		public Stroke LevelCLine { get; set; }		
+
+		[NinjaScriptProperty]
+		[Display(Name = "Level D Line", Order = 8, GroupName = "Parameters")]
+		public Stroke LevelDLine { get; set; }
+        #endregion
+    }
+}
+
+
