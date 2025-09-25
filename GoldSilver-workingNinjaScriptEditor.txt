@@ -84,14 +84,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 		
 		// New variables for session tracking and timing
 		private bool hasDroppedBelowLevelCToday = false;
-		private DateTime levelCDropTime = DateTime.MinValue;
+		private int levelCDropBar = -1;
 		private bool canBuyAtLevelB = false;
+		private bool hasRisenAboveLevelAToday = false;
+		private int levelARiseBar = -1;
+		private bool canSellAtLevelD = false;
 		private int currentSessionDate = 0;
 		
 		private int		breakEvenTicks		= 4;//default 5, 6		// Default setting for ticks needed to acheive before stop moves to breakeven		
 		private int		plusBreakEven		= 0; //default 3, 2		// Default setting for amount of ticks past breakeven to actually breakeven
 		private int		profitTargetTicks	= 400;//default 200		// Default setting for how many Ticks away from AvgPrice is profit target
-        private int		stopLossTicks		= 22;//default 8, 6		// Default setting for stoploss. Ticks away from AvgPrice		
+        private int		stopLossTicks		= 22;//default 8, 6		// Default setting for stoploss. Ticks away from AvgPrice
+		private int		trailingStopTicks	= 4;				// Trailing stop distance in ticks
 		private int		trailProfitTrigger	= 5;//default 9	, 8	// 8 Default Setting for trail trigger ie the number of ticks movede after break even befor activating TrailStep
 		private int		trailStepTicks		= 1;//default 3, 2		// 2 Default setting for number of ticks advanced in the trails - take into consideration the barsize as is calculated/advanced next bar
 		private int 	BarTraded 			= 0; //default 0		// Default setting for Bar number that trade occurs	
@@ -197,8 +201,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 			{
 				currentSessionDate = todayDate;
 				hasDroppedBelowLevelCToday = false;
-				levelCDropTime = DateTime.MinValue;
+				levelCDropBar = -1;
 				canBuyAtLevelB = false;
+				hasRisenAboveLevelAToday = false;
+				levelARiseBar = -1;
+				canSellAtLevelD = false;
 			}
 			
 			barHigh[0] = High[0];
@@ -242,19 +249,39 @@ namespace NinjaTrader.NinjaScript.Strategies
 			if (!hasDroppedBelowLevelCToday && Low[0] < LevelCValue)
 			{
 				hasDroppedBelowLevelCToday = true;
-				levelCDropTime = Time[0];
+				levelCDropBar = CurrentBar;
 				canBuyAtLevelB = true;
-				Print("Price dropped below LevelC (" + LevelCValue + ") at " + levelCDropTime + " - Can now buy at LevelB ( " + LevelBValue + " ) within 30 minutes");
+				Print("Price dropped below LevelC (" + LevelCValue + ") at bar " + levelCDropBar + " - Can now buy at LevelB (" + LevelBValue + ") within 5 bars");
 			}
 			
-			// Check if 5 minutes have passed since dropping below LevelC
-			if (canBuyAtLevelB && hasDroppedBelowLevelCToday && levelCDropTime != DateTime.MinValue)
+			// Check if 5 bars have passed since dropping below LevelC
+			if (canBuyAtLevelB && hasDroppedBelowLevelCToday && levelCDropBar != -1)
 			{
-				TimeSpan timeSinceDrop = Time[0] - levelCDropTime;
-				if (timeSinceDrop.TotalMinutes > 30)
+				int barsSinceDrop = CurrentBar - levelCDropBar;
+				if (barsSinceDrop > 5)
 				{
 					canBuyAtLevelB = false;
-					Print("5 minute window expired - No longer eligible to buy at LevelB (" + LevelBValue);
+					Print("5 bar window expired - No longer eligible to buy at LevelB (" + LevelBValue + ")");
+				}
+			}
+			
+			// Check if price has risen above LevelA for the first time today
+			if (!hasRisenAboveLevelAToday && High[0] > LevelAValue)
+			{
+				hasRisenAboveLevelAToday = true;
+				levelARiseBar = CurrentBar;
+				canSellAtLevelD = true;
+				Print("Price rose above LevelA (" + LevelAValue + ") at bar " + levelARiseBar + " - Can now sell at LevelD (" + LevelDValue + ") within 5 bars");
+			}
+			
+			// Check if 5 bars have passed since rising above LevelA
+			if (canSellAtLevelD && hasRisenAboveLevelAToday && levelARiseBar != -1)
+			{
+				int barsSinceRise = CurrentBar - levelARiseBar;
+				if (barsSinceRise > 5)
+				{
+					canSellAtLevelD = false;
+					Print("5 bar window expired - No longer eligible to sell at LevelD (" + LevelDValue + ")");
 				}
 			}
 			#endregion
@@ -367,13 +394,25 @@ namespace NinjaTrader.NinjaScript.Strategies
 				{
 					_lastBar = CurrentBar;
 					SetProfitTarget(CalculationMode.Ticks, 4);
-					SetStopLoss(CalculationMode.Ticks, 21);
+					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
 					EnterLong(1, "LevelB_Buy_After_LevelC_Drop");
 					canBuyAtLevelB = false; // Reset flag after trade
 					Print("Market Buy executed at LevelB (" + LevelBValue + ") after LevelC drop condition met");
 					return;
 				}
 				
+				// Special condition: Sell at LevelD after rising above LevelA within 5 bars
+				if (canSellAtLevelD && hasRisenAboveLevelAToday && 
+					Close[0] <= LevelDValue && High[0] >= LevelDValue)
+				{
+					_lastBar = CurrentBar;
+					SetProfitTarget(CalculationMode.Ticks, 4);
+					SetTrailStop(CalculationMode.Ticks, trailingStopTicks);
+					EnterShort(1, "LevelD_Sell_After_LevelA_Rise");
+					canSellAtLevelD = false; // Reset flag after trade
+					Print("Market Sell executed at LevelD (" + LevelDValue + ") after LevelA rise condition met");
+					return;
+				}
 //                var support = _sr.SupportPrice[0];
 				if (
 //					(Zombie9SetupTracker(Close, @"Zombie9SetupTracker - v1.074", true, 15, 1, 12, 26, 9, Brushes.RoyalBlue, Brushes.Fuchsia, Brushes.DimGray, 10).EntryLetter[1] == "S.")
@@ -748,8 +787,18 @@ namespace NinjaTrader.NinjaScript.Strategies
 			get {return trailStepTicks;}
 			set {trailStepTicks = value;}
 		}
+		
+		[Range(1, int.MaxValue)]
 		[NinjaScriptProperty]
-		[Display(Name = "Show Lines", Description="Plot profit and stop lines on chart", Order = 7, GroupName = "Parameters")]
+		[Display(Name="Trailing Stop Ticks", Description="Number of ticks for trailing stop distance", Order=7, GroupName="Parameters")]
+		public int TrailingStopTicks
+		{
+			get {return trailingStopTicks;}
+			set {trailingStopTicks = value;}
+		}
+		
+		[NinjaScriptProperty]
+		[Display(Name = "Show Lines", Description="Plot profit and stop lines on chart", Order = 8, GroupName = "Parameters")]
 		public bool ShowLines
 		{
 			get { return showLines; } 
